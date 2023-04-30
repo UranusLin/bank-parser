@@ -155,6 +155,13 @@ def parser_first_sheet(df, collection, query_time):
 
     return return_data
 
+def parser_bis():
+    xls = pd.ExcelFile('./data/bis.xls')
+    sheet_names = xls.sheet_names
+    df = pd.read_excel(xls, sheet_name=sheet_names[0])
+    for index, row in df.iterrows():
+        row_dict = row.to_dict()
+        parser_bis_content(row_dict)
 
 def get_time(file_name):
     query_time = "{}年 {}月".format(file_name[:3], file_name[3:])
@@ -201,3 +208,22 @@ def export_csv_by_db(db, merge):
     if merge:
         all_data_df.to_csv("./export/all_data.csv", index=False)
         print("Exported all_data.csv")
+
+def parser_bis_content(row):
+    count = 39
+    for i in range(105, 112):
+        for j in range(3, 13, 3):
+            time = "{}年 {}月".format(str(i), str(j))
+            if isinstance(row.get("本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks"), str) and "本國銀行體系平均BIS(見說明)" in row.get('本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks'):
+                bank = '本國銀行'
+            elif isinstance(row.get("Unnamed: 1"), str) and '銀行' in row.get('Unnamed: 1'):
+                bank = row.get('Unnamed: 1')
+            else:
+                continue
+            bis = row.get('Unnamed: {}'.format(count))
+            query = {"時間": time, "銀行": bank}
+            collection = bank_db[bank]
+            update_record(collection, query, {'資本適足率': bis})
+            collection = time_db[time[:4]]
+            update_record(collection, query, {'資本適足率': bis})
+            count += 1
