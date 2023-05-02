@@ -30,11 +30,20 @@ def financial_statement(year, season, com_code):
     #          .apply(lambda s: pd.to_numeric(s, errors='ceorce'))
 
 
-def read_form_html(path: str):
-    dfs = pd.read_html(path, header=None)
-    merged_df = pd.merge(dfs[1], dfs[2], on=['跨類別查詢', '跨類別查詢.1'], how='inner')
-    # rename columns name
-    merged_df = merged_df.rename(columns={'跨類別查詢': '時間', '跨類別查詢.1': '銀行'})
+def read_form_html(path_list: list):
+    dfs1 = pd.read_html(path_list[0], header=None)
+    dfs2 = pd.read_html(path_list[1], header=None)
+
+    temp1 = pd.merge(dfs1[1], dfs1[2], on=['跨類別查詢', '跨類別查詢.1'], how='inner')
+    temp1 = temp1.rename(columns={'跨類別查詢': '時間', '跨類別查詢.1': '銀行'})
+    temp2 = dfs2[1].rename(columns={'跨類別查詢': '時間', '跨類別查詢.1': '銀行'})
+
+    # 確保兩個數據框的行名稱相同
+    assert (temp1['時間'] == temp2['時間']).all() and (temp1['銀行'] == temp2['銀行']).all()
+
+    # 合併兩個數據框
+    merged_df = pd.concat([temp1.set_index(['時間', '銀行']), temp2.set_index(['時間', '銀行'])], axis=1).reset_index()
+
     return merged_df
 
 
