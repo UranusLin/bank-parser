@@ -2,6 +2,8 @@ import requests
 import pandas as pd
 from pymongo import MongoClient
 
+from utils import get_all_paths
+
 client = MongoClient('mongodb://zeroPass:9674Ephzx&T7@127.0.0.1:27017/?retryWrites=true&w=majority')
 bank_db = client['bank']
 time_db = client['time_series']
@@ -46,6 +48,21 @@ def read_form_html(path_list: list):
 
     return merged_df
 
+def read_from_data_html():
+    # get all file path from folder
+    path_list = get_all_paths("./data/data")
+    for i in path_list:
+        dfs2 = pd.read_html(i, header=None)
+        column_mapping = {
+            dfs2[1].columns[0]: '時間',
+            dfs2[1].columns[1]: '銀行'
+        }
+        temp = dfs2[1].rename(columns=column_mapping)
+        insert_mongo_by_time(temp)
+        insert_mongo_by_bank(temp)
+
+
+
 
 def insert_mongo_by_time(merged_df):
     for index, row in merged_df.iterrows():
@@ -55,39 +72,45 @@ def insert_mongo_by_time(merged_df):
         collection = time_db[temp[0]]
         if len(temp) > 1:
             if temp[1] in ['3月', '6月', '9月', '12月']:
+                if "/" in row_dict.get('銀行'):
+                    row_dict['銀行'] = row_dict['銀行'].replace("全行/ ", "")
                 if " " in row_dict.get('銀行'):
                     row_dict['銀行'] = row_dict['銀行'].split(" ")[1]
                 if "＊" in row_dict.get('銀行'):
                     row_dict['銀行'] = row_dict['銀行'].replace("＊", "")
                 # insert data
-                collection.insert_one(row_dict)
+                query = {"時間": row_dict['時間'], "銀行": row_dict['銀行']}
+                update = {'$set': row_dict}
+                collection.update_one(query, update, upsert=True)
 
 
 def insert_mongo_by_bank(merge_df):
-    store_list = []
     for index, row in merge_df.iterrows():
-        # init key by 銀行 and value is list
-        if row['銀行'] not in store_list:
-            store_list.append(row['銀行'])
-        row_dict = row.to_dict()
         # store collection by 銀行
+        row_dict = row.to_dict()
         bank = row_dict['銀行']
+        if "/" in bank:
+            bank = bank.replace("全行/ ", "")
         if " " in bank:
             bank = bank.split(" ")[1]
         if "＊" in bank:
             bank = bank.replace("＊", "")
+
         collection = bank_db[bank]
         # insert data
         temp = row['時間'].split(' ')
-
         if len(temp) > 1:
             if temp[1] in ['3月', '6月', '9月', '12月']:
+                if "/" in row_dict.get('銀行'):
+                    row_dict['銀行'] = row_dict['銀行'].replace("全行/ ", "")
                 if " " in row_dict.get('銀行'):
                     row_dict['銀行'] = row_dict['銀行'].split(" ")[1]
                 if "＊" in row_dict.get('銀行'):
                     row_dict['銀行'] = row_dict['銀行'].replace("＊", "")
                 # insert data
-                collection.insert_one(row_dict)
+                query = {"時間": row_dict['時間'], "銀行": row_dict['銀行']}
+                update = {'$set': row_dict}
+                collection.update_one(query, update, upsert=True)
 
 
 def download_bstatistics_view():

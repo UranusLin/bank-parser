@@ -1,11 +1,11 @@
 from service import financial_statement, read_form_html, insert_mongo_by_time, insert_mongo_by_bank, download_xls, \
-    download_bstatistics_view, process_xls, export_csv, parser_bis
+    download_bstatistics_view, process_xls, export_csv, parser_bis, read_from_data_html
 
 if __name__ == '__main__':
     # parser html from 衍生性金融商品 html and save to mongo
-    # merge_df = read_form_html(["./data/data_1.html", "./data/data_2.html"])
-    # insert_mongo_by_time(merge_df)
-    # insert_mongo_by_bank(merge_df)
+    merge_df = read_form_html(["./data/data_1.html", "./data/data_2.html"])
+    insert_mongo_by_time(merge_df)
+    insert_mongo_by_bank(merge_df)
 
     # download all quarter xls from 進出口信用狀金額統計
     # download_bstatistics_view()
@@ -20,6 +20,9 @@ if __name__ == '__main__':
 
     # parser bis xls to update data
     parser_bis()
+
+    # parser data/data html
+    read_from_data_html()
 
     # export all data to csv
     export_csv()
