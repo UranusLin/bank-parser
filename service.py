@@ -1,12 +1,18 @@
+from urllib import parse
+
 import requests
 import pandas as pd
 from pymongo import MongoClient
 
-from utils import get_all_paths
+from utils import get_all_paths, read_json
 
 client = MongoClient('mongodb://zeroPass:9674Ephzx&T7@127.0.0.1:27017/?retryWrites=true&w=majority')
 bank_db = client['bank']
 time_db = client['time_series']
+
+
+bank_stock = read_json('./data/back_stock_code.json')
+
 
 def financial_statement(year, season, com_code):
     if year >= 1000:
@@ -48,6 +54,7 @@ def read_form_html(path_list: list):
 
     return merged_df
 
+
 def read_from_data_html():
     # get all file path from folder
     path_list = get_all_paths("./data/data")
@@ -62,7 +69,31 @@ def read_from_data_html():
         insert_mongo_by_bank(temp)
 
 
+def read_from_e_data():
+    # get all file path from folder
+    path_list = get_all_paths("./data/e_data_1")
 
+    for i in path_list:
+        # html unescape
+        column_name = parse.unquote(i.split("/")[3]).split("-")[0].split(".")[0]
+        xls = pd.ExcelFile(i)
+        df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+        parser_e_data(df, column_name)
+
+def parser_e_data(df, column_name):
+    for index, row in df.iterrows():
+        row_dict = row.to_dict()
+        back_stock = row_dict.get("年度/季度").split(" ")[0]
+        # iterate dict
+        for key, value in row_dict.items():
+            if "年度" not in key:
+                year = int(key[0:4]) - 1911
+                month = int(key[-1]) * 3
+                date = "{}年 {}月".format(year, month)
+                query = {"時間": date, "stock": back_stock}
+                value = {"$set": {column_name: value}}
+                update_all_collection_data(time_db, query, value)
+                update_all_collection_data(bank_db, query, value)
 
 def insert_mongo_by_time(merged_df):
     for index, row in merged_df.iterrows():
@@ -80,6 +111,7 @@ def insert_mongo_by_time(merged_df):
                     row_dict['銀行'] = row_dict['銀行'].replace("＊", "")
                 # insert data
                 query = {"時間": row_dict['時間'], "銀行": row_dict['銀行']}
+                row_dict['stock'] = bank_stock.get(row_dict['銀行'])
                 update = {'$set': row_dict}
                 collection.update_one(query, update, upsert=True)
 
@@ -109,6 +141,7 @@ def insert_mongo_by_bank(merge_df):
                     row_dict['銀行'] = row_dict['銀行'].replace("＊", "")
                 # insert data
                 query = {"時間": row_dict['時間'], "銀行": row_dict['銀行']}
+                row_dict['stock'] = bank_stock.get(row_dict['銀行'])
                 update = {'$set': row_dict}
                 collection.update_one(query, update, upsert=True)
 
@@ -187,6 +220,7 @@ def parser_first_sheet(df, collection, query_time):
 
     return return_data
 
+
 def parser_bis():
     xls = pd.ExcelFile('./data/bis.xls')
     sheet_names = xls.sheet_names
@@ -194,6 +228,7 @@ def parser_bis():
     for index, row in df.iterrows():
         row_dict = row.to_dict()
         parser_bis_content(row_dict)
+
 
 def get_time(file_name):
     query_time = "{}年 {}月".format(file_name[:3], file_name[3:])
@@ -209,10 +244,49 @@ def update_record(collection, query, new_key_value):
     bank = bank_db[query['銀行']]
     bank.update_one(query, {"$set": new_key_value})
 
+
 # export all data to csv
 def export_csv():
     export_csv_by_db(time_db, True)
     export_csv_by_db(bank_db, False)
+
+def export_time_data():
+    collection_names = time_db.list_collection_names()
+
+    all_data_df = pd.DataFrame()
+    for collection_name in collection_names:
+        # 讀取集合中的所有文檔
+        documents = time_db[collection_name].find()
+
+        # 使用pandas將文檔轉換為DataFrame
+        df = pd.DataFrame(list(documents))
+
+        # 刪除_id列
+        if '_id' in df.columns:
+            df.drop('_id', axis=1, inplace=True)
+        if 'stock' in df.columns:
+            df.drop('stock', axis=1, inplace=True)
+
+        # 將“時間”欄位拆分為“年”和“月”欄位
+        df[['年', '月']] = df['時間'].str.extract(r'(\d+)年\s+(\d+)月')
+
+        # 删除原始“時間”字段
+        df.drop('時間', axis=1, inplace=True)
+
+        all_data_df = pd.concat([all_data_df, df], ignore_index=True)
+
+    # 將DataFrame按照"年"和"月"進行排序
+    all_data_df['年'] = all_data_df['年'].astype(int)
+    all_data_df['月'] = all_data_df['月'].astype(int)
+    all_data_df.sort_values(by=['年', '月'], inplace=True)
+
+    # 將“年”和“月”列移至最前面
+    cols = ['年', '月'] + [col for col in all_data_df.columns if col not in ['年', '月']]
+    all_data_df = all_data_df[cols]
+
+    # 將DataFrame保存為CSV文件
+    all_data_df.to_csv("./export/all_data.csv", index=False)
+    print("Exported all_data.csv")
 
 def export_csv_by_db(db, merge):
     collection_names = db.list_collection_names()
@@ -241,12 +315,23 @@ def export_csv_by_db(db, merge):
         all_data_df.to_csv("./export/all_data.csv", index=False)
         print("Exported all_data.csv")
 
+
+# update all collection collection data
+def update_all_collection_data(db, query, value):
+    collection_names = db.list_collection_names()
+    for collection_name in collection_names:
+        collection = db[collection_name]
+        collection.update_one(query, value)
+
+
 def parser_bis_content(row):
     count = 39
-    for i in range(105, 112):
+    for i in range(102, 112):
         for j in range(3, 13, 3):
             time = "{}年 {}月".format(str(i), str(j))
-            if isinstance(row.get("本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks"), str) and "本國銀行體系平均BIS(見說明)" in row.get('本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks'):
+            if isinstance(row.get("本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks"),
+                          str) and "本國銀行體系平均BIS(見說明)" in row.get(
+                    '本國銀行體系資本適足率\nTotal Capital Adequacy Ratio of Domestic Banks'):
                 bank = '本國銀行'
             elif isinstance(row.get("Unnamed: 1"), str) and '銀行' in row.get('Unnamed: 1'):
                 bank = row.get('Unnamed: 1')
